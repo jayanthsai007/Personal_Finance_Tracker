@@ -108,21 +108,37 @@
             background-color: #f8d7da;
             border-color: #f5c6cb;
         }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>Dashboard</h1>
+        <h1>Personal Finance Tracker</h1>
         <p>Welcome, {{ current_user.username }}!</p>
         <div class="nav-links">
             <a href="{{ url_for('logout') }}">Logout</a>
         </div>
         <div id="alert-container"></div>
         
-        <!-- Budget Usage Section -->
+        <!-- Financial Dashboard Section -->
         <div class="chart-section">
-            <h2>Budget Usage</h2>
+            <h2>Financial Dashboard</h2>
             <div class="flex-container">
                 <!-- Doughnut Chart -->
                 <div class="chart-container">
@@ -133,16 +149,30 @@
                     <canvas id="categoryBarChart"></canvas>
                 </div>
             </div>
+            <!-- Recent Transactions Table -->
+            <h3>Recent Transactions</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Amount</th>
+                    </tr>
+                </thead>
+                <tbody id="recentTransactionsBody">
+                    <!-- Recent transactions will be populated here -->
+                </tbody>
+            </table>
         </div>
 
         <div class="button-container">
-            <a href="{{ url_for('transactions') }}">View Transactions</a>
+            <a href="{{ url_for('transactions') }}">View All Transactions</a>
             <a href="{{ url_for('budget_alerts') }}">Budget Alerts</a>
         </div>
     </div>
 
     <script>
-        // Fetch the data from a JSON file
+        // Fetch data for charts and alerts
         fetch('/dashboard_data.json')
             .then(response => response.json())
             .then(data => {
@@ -226,6 +256,23 @@
                 }
             })
             .catch(error => console.error('Error loading JSON:', error));
+
+        // Fetch recent transactions
+        fetch('/recent_transactions.json')
+            .then(response => response.json())
+            .then(data => {
+                const recentTransactionsBody = document.getElementById('recentTransactionsBody');
+                data.forEach(transaction => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${transaction.date}</td>
+                        <td>${transaction.category}</td>
+                        <td>₹${transaction.amount}</td>
+                    `;
+                    recentTransactionsBody.appendChild(row);
+                });
+            })
+            .catch(error => console.error('Error loading recent transactions:', error));
     </script>
 </body>
 </html>
