@@ -68,7 +68,7 @@
             display: flex;
             flex-direction: column;
         }
-        .form-container input, .form-container button {
+        .form-container input, .form-container button, .form-container select {
             padding: 10px;
             margin-bottom: 10px;
             border: 1px solid #ddd;
@@ -135,7 +135,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Financial Transactions</h1>
+        <h1>Expense List</h1>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 <div id="alert-container">
@@ -145,6 +145,29 @@
                 </div>
             {% endif %}
         {% endwith %}
+        
+        <!-- Filter Form -->
+        <div class="form-container">
+            <h2>Filter Expenses</h2>
+            <form method="GET" action="{{ url_for('transactions') }}">
+                <label for="start_date">Start Date:</label>
+                <input type="date" id="start_date" name="start_date">
+                
+                <label for="end_date">End Date:</label>
+                <input type="date" id="end_date" name="end_date">
+                
+                <label for="category">Category:</label>
+                <select id="category" name="category">
+                    <option value="">All Categories</option>
+                    {% for category in categories %}
+                    <option value="{{ category }}">{{ category }}</option>
+                    {% endfor %}
+                </select>
+                
+                <button type="submit">Filter</button>
+            </form>
+        </div>
+        
         <table>
             <thead>
                 <tr>
@@ -174,10 +197,11 @@
         <p>{{ notification }}</p>
         {% endif %}
         <div class="form-container">
-            <h2>Add Financial Record</h2>
+            <h2>Add Expense</h2>
             <form method="POST" action="{{ url_for('add_record') }}">
                 <input type="text" name="category" placeholder="Category" required>
                 <input type="number" name="amount" placeholder="Amount" required>
+                <input type="date" name="date" placeholder="Date" required>
                 <button type="submit">Add Record</button>
             </form>
         </div>
@@ -189,14 +213,22 @@
                 <input type="date" name="start_date" placeholder="Start Date" required>
                 <input type="date" name="end_date" placeholder="End Date" required>
                 <h3>Category-wise Budgets</h3>
-                {% for record in records %}
-                <input type="number" name="category_budget_{{ record.category }}" placeholder="Budget for {{ record.category }}" required>
+                {% for category in categories %}
+                <div>
+                    <label for="category_{{ category }}">{{ category }}</label>
+                    <select name="category_{{ category }}" id="category_{{ category }}">
+                        <option value="{{ category }}">{{ category }}</option>
+                    </select>
+                    <input type="number" name="category_budget_{{ category }}" placeholder="Budget for {{ category }}" required>
+                </div>
                 {% endfor %}
                 <button type="submit">Set Budget Limit</button>
             </form>
         </div>
         <div class="chart-container">
-            <h2>Category-wise Spending</h2>
+            <h2>Financial Report</h2>
+            <p>Total Expenses: ₹{{ total_spending | round(2) }}</p>
+            <p>Average Daily Spending: ₹{{ average_daily_spending | round(2) }}</p>
             <div class="chart-type-selector">
                 <label for="chartType">Select Chart Type:</label>
                 <select id="chartType" onchange="updateChartType()">
