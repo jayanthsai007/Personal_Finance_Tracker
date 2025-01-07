@@ -10,42 +10,37 @@
             padding: 20px;
         }
         .container {
-            max-width: 600px;
+            max-width: 800px;
             margin: 0 auto;
             background-color: #fff;
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
         }
-        h1 {
+        h1, h2 {
             color: #333;
         }
         .alert-container {
             margin-top: 20px;
+        }
+        .alert {
             padding: 15px;
-            border: 1px solid transparent;
+            margin-bottom: 10px;
             border-radius: 4px;
+            color: #fff;
         }
         .alert-success {
-            color: #155724;
-            background-color: #d4edda;
-            border-color: #c3e6cb;
+            background-color: #28a745;
         }
         .alert-warning {
-            color: #856404;
-            background-color: #fff3cd;
-            border-color: #ffeeba;
+            background-color: #ffc107;
+            color: #212529;
         }
         .alert-danger {
-            color: #721c24;
-            background-color: #f8d7da;
-            border-color: #f5c6cb;
+            background-color: #dc3545;
         }
         .category-analysis {
             margin-top: 20px;
-        }
-        .category-analysis h2 {
-            color: #333;
         }
         .category-analysis p {
             margin: 5px 0;
@@ -55,17 +50,47 @@
 <body>
     <div class="container">
         <h1>Budget Alerts</h1>
-        <div id="alertContainer" class="alert-container">
-            {% for alert in alerts %}
-                <div class="alert alert-{{ alert.type }}">{{ alert.message }}</div>
-            {% endfor %}
-        </div>
+        <div id="alert-container" class="alert-container"></div>
         <div id="categoryAnalysis" class="category-analysis">
             <h2>Category-wise Budget Usage</h2>
-            {% for analysis in category_analysis %}
-                <p>{{ analysis.category }}: Spent ₹{{ analysis.spent }} of ₹{{ analysis.budget }} ({{ analysis.percentage }}%)</p>
-            {% endfor %}
+            <div id="categoryAnalysisContent"></div>
         </div>
     </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            fetch('/budget_data.json')
+                .then(response => response.json())
+                .then(data => {
+                    const alertContainer = document.getElementById('alert-container');
+                    const categoryAnalysisContent = document.getElementById('categoryAnalysisContent');
+                    const totalSpent = data.total_spent;
+                    const budgetLimit = data.budget_limit;
+
+                    let alertClass = 'alert-success';
+                    if (totalSpent >= 0.7 * budgetLimit) {
+                        alertClass = 'alert-danger';
+                    } else if (totalSpent >= 0.4 * budgetLimit) {
+                        alertClass = 'alert-warning';
+                    }
+
+                    alertContainer.innerHTML = `<div class="alert ${alertClass}">You have spent ${((totalSpent / budgetLimit) * 100).toFixed(2)}% of your budget!</div>`;
+
+                    data.category_analysis.forEach(analysis => {
+                        let categoryAlertClass = 'alert-success';
+                        if (analysis.percentage >= 70) {
+                            categoryAlertClass = 'alert-danger';
+                        } else if (analysis.percentage >= 40) {
+                            categoryAlertClass = 'alert-warning';
+                        }
+
+                        const categoryAlert = document.createElement('div');
+                        categoryAlert.className = `alert ${categoryAlertClass}`;
+                        categoryAlert.textContent = `${analysis.category}: Spent ₹${analysis.spent} of ₹${analysis.budget} (${analysis.percentage}%)`;
+                        categoryAnalysisContent.appendChild(categoryAlert);
+                    });
+                })
+                .catch(error => console.error('Error loading JSON:', error));
+        });
+    </script>
 </body>
 </html>
