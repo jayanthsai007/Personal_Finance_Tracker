@@ -97,6 +97,12 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
+@app.route('/')
+@app.route('/index')
+def index():
+    return render_template('index.html')
+
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -166,7 +172,24 @@ def dashboard():
 @app.route('/transactions', methods=['GET', 'POST'])
 @login_required
 def transactions():
-    records = FinancialRecord.query.filter_by(user_id=current_user.id).all()
+    # Get filter parameters from the request
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    category_filter = request.args.get('category')
+
+    # Query records based on filters
+    query = FinancialRecord.query.filter_by(user_id=current_user.id)
+    if start_date:
+        query = query.filter(FinancialRecord.date >=
+                             datetime.strptime(start_date, '%Y-%m-%d'))
+    if end_date:
+        query = query.filter(FinancialRecord.date <=
+                             datetime.strptime(end_date, '%Y-%m-%d'))
+    if category_filter:
+        query = query.filter_by(category=category_filter)
+
+    records = query.all()
+
     # Extract unique categories from records
     categories = set(record.category for record in records)
     records_dict = [
@@ -189,7 +212,33 @@ def transactions():
         budget_limit = None
         category_budgets = {}
 
-    return render_template('transactions.html', records=records_dict, categories=categories, budget_limit=budget_limit, category_budgets=category_budgets)
+    # Calculate total spending and average daily spending
+    total_spending = sum(record['amount'] for record in records_dict)
+    if records:
+        start_date = min(record.date for record in records)
+        end_date = max(record.date for record in records)
+        days_spent = (end_date - start_date).days + \
+            1  # Include both start and end date
+        average_daily_spending = total_spending / days_spent
+    else:
+        average_daily_spending = 0
+
+    # Calculate average daily spending for each category
+    category_spending = {}
+    for record in records_dict:
+        category = record['category']
+        amount = record['amount']
+        if category in category_spending:
+            category_spending[category] += amount
+        else:
+            category_spending[category] = amount
+
+    category_average_daily_spending = {}
+    for category, total in category_spending.items():
+        category_average_daily_spending[category] = total / \
+            days_spent if days_spent > 0 else 0
+
+    return render_template('transactions.html', records=records_dict, categories=categories, budget_limit=budget_limit, category_budgets=category_budgets, average_daily_spending=average_daily_spending, category_average_daily_spending=category_average_daily_spending, total_spending=total_spending)
 
 
 @app.route('/set_category_budget_limit', methods=['POST'])
@@ -225,23 +274,23 @@ def budget_alerts():
     if budget:
         total_spent = sum(record.amount for record in FinancialRecord.query.filter_by(
             user_id=current_user.id).all())
-        if total_spent >= budget.budget_limit:
-            alerts.append({
-                'type': 'alert-danger',
-                'message': 'You have exceeded your budget limit!'
-            })
-        elif total_spent >= 0.9 * budget.budget_limit:
-            alerts.append({
-                'type': 'alert-warning',
-                'message': 'You are about to reach your budget limit!'
-            })
+        total_percentage = (total_spent / budget.budget_limit *
+                            100) if budget.budget_limit > 0 else 0
+
+        if total_percentage >= 70:
+            alert_type = 'alert-danger'
+        elif total_percentage >= 40:
+            alert_type = 'alert-warning'
         else:
-            alerts.append({
-                'type': 'alert-success',
-                'message': 'You are within your budget limit.'
-            })
+            alert_type = 'alert-success'
+
+        alerts.append({
+            'type': alert_type,
+            'message': f'You have spent {total_percentage:.2f}% of your budget!'
+        })
 
         for category, limit in budget.category_budgets.items():
+            limit = int(limit)  # Convert limit to integer
             category_spent = sum(record.amount for record in FinancialRecord.query.filter_by(
                 user_id=current_user.id, category=category).all())
             percentage = (category_spent / limit * 100) if limit > 0 else 0
@@ -251,21 +300,17 @@ def budget_alerts():
                 'budget': limit,
                 'percentage': round(percentage, 2)
             })
-            if category_spent >= limit:
-                alerts.append({
-                    'type': 'alert-danger',
-                    'message': f'You have exceeded your budget limit for {category}!'
-                })
-            elif category_spent >= 0.9 * limit:
-                alerts.append({
-                    'type': 'alert-warning',
-                    'message': f'You are about to reach your budget limit for {category}!'
-                })
+            if percentage >= 70:
+                alert_type = 'alert-danger'
+            elif percentage >= 40:
+                alert_type = 'alert-warning'
             else:
-                alerts.append({
-                    'type': 'alert-success',
-                    'message': f'You are within your budget limit for {category}.'
-                })
+                alert_type = 'alert-success'
+
+            alerts.append({
+                'type': alert_type,
+                'message': f'You have spent {percentage:.2f}% of your budget for {category}!'
+            })
     else:
         alerts.append({
             'type': 'alert-success',
@@ -275,13 +320,68 @@ def budget_alerts():
     return render_template('alerts.html', alerts=alerts, category_analysis=category_analysis)
 
 
+@app.route('/budget_data.json')
+@login_required
+def budget_data():
+    budget = Budget.query.filter_by(
+        user_id=current_user.id).order_by(Budget.id.desc()).first()
+    if not budget:
+        return jsonify({
+            'total_spent': 0,
+            'budget_limit': 0,
+            'category_analysis': []
+        })
+
+    total_spent = sum(record.amount for record in FinancialRecord.query.filter_by(
+        user_id=current_user.id).all())
+    category_analysis = []
+    for category, limit in budget.category_budgets.items():
+        category_spent = sum(record.amount for record in FinancialRecord.query.filter_by(
+            user_id=current_user.id, category=category).all())
+        percentage = (category_spent / int(limit) *
+                      100) if int(limit) > 0 else 0
+        category_analysis.append({
+            'category': category,
+            'spent': category_spent,
+            'budget': int(limit),
+            'percentage': round(percentage, 2)
+        })
+
+    return jsonify({
+        'total_spent': total_spent,
+        'budget_limit': budget.budget_limit,
+        'category_analysis': category_analysis
+    })
+
+
+@app.route('/recent_transactions.json')
+@login_required
+def recent_transactions():
+    recent_records = FinancialRecord.query.filter_by(
+        user_id=current_user.id).order_by(FinancialRecord.date.desc()).limit(3).all()
+    recent_transactions = [
+        {
+            'category': record.category,
+            'amount': record.amount,
+            'date': record.date.strftime('%Y-%m-%d')
+        }
+        for record in recent_records
+    ]
+    return jsonify(recent_transactions)
+
+
 @app.route('/add_record', methods=['POST'])
 @login_required
 def add_record():
     category = request.form['category']
     amount = request.form['amount']
+    date = request.form['date']
     new_record = FinancialRecord(
-        user_id=current_user.id, category=category, amount=amount)
+        user_id=current_user.id,
+        category=category,
+        amount=amount,
+        date=datetime.strptime(date, '%Y-%m-%d')
+    )
     db.session.add(new_record)
     db.session.commit()
     flash('Record added successfully')
@@ -434,28 +534,36 @@ def logout():
 @app.route('/set_budget_limit', methods=['POST'])
 @login_required
 def set_budget_limit():
-    budget_limit = float(request.form['budget_limit'])
-    start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d')
-    end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d')
+    budget_limit = int(request.form['budget_limit'])
+    start_date = request.form['start_date']
+    end_date = request.form['end_date']
+    category_budgets = {key.split('_')[2]: int(
+        value) for key, value in request.form.items() if key.startswith('category_budget_')}
 
-    category_budgets = {}
-    for key, value in request.form.items():
-        if key.startswith('category_budget_'):
-            category = key[len('category_budget_'):]
-            category_budgets[category] = float(value)
-
-    # Save the budget information to the database
-    budget = Budget(
-        user_id=current_user.id,
-        budget_limit=budget_limit,
-        start_date=start_date,
-        end_date=end_date,
-        category_budgets=category_budgets
-    )
-    db.session.add(budget)
+    # Update or create the budget
+    budget = Budget.query.filter_by(
+        user_id=current_user.id).order_by(Budget.id.desc()).first()
+    if budget:
+        budget.budget_limit = budget_limit
+        budget.start_date = datetime.strptime(start_date, '%Y-%m-%d')
+        budget.end_date = datetime.strptime(end_date, '%Y-%m-%d')
+        budget.category_budgets = category_budgets
+    else:
+        budget = Budget(
+            user_id=current_user.id,
+            budget_limit=budget_limit,
+            start_date=datetime.strptime(start_date, '%Y-%m-%d'),
+            end_date=datetime.strptime(end_date, '%Y-%m-%d'),
+            category_budgets=category_budgets
+        )
+        db.session.add(budget)
     db.session.commit()
 
+    notification = "Budget limit set successfully!"
+
+    # Recalculate the total spending and other details
     records = FinancialRecord.query.filter_by(user_id=current_user.id).all()
+    categories = set(record.category for record in records)
     records_dict = [
         {
             'id': record.id,
@@ -465,18 +573,31 @@ def set_budget_limit():
         }
         for record in records
     ]
-    total_amount = sum(record['amount'] for record in records_dict if start_date <=
-                       datetime.strptime(record['date'], '%Y-%m-%d') <= end_date)
 
-    if total_amount >= budget_limit:
-        notification = "You have exceeded your budget limit!"
-    elif total_amount >= 0.9 * budget_limit:
-        notification = "You are about to reach your budget limit!"
+    total_spending = sum(record['amount'] for record in records_dict)
+    if records:
+        start_date = min(record.date for record in records)
+        end_date = max(record.date for record in records)
+        days_spent = (end_date - start_date).days + 1
+        average_daily_spending = total_spending / days_spent
     else:
-        notification = "Budget limit set successfully."
+        average_daily_spending = 0
 
-    flash(notification)
-    return render_template('transactions.html', user=current_user, records=records_dict, notification=notification, budget_limit=budget_limit)
+    category_spending = {}
+    for record in records_dict:
+        category = record['category']
+        amount = record['amount']
+        if category in category_spending:
+            category_spending[category] += amount
+        else:
+            category_spending[category] = amount
+
+    category_average_daily_spending = {}
+    for category, total in category_spending.items():
+        category_average_daily_spending[category] = total / \
+            days_spent if days_spent > 0 else 0
+
+    return render_template('transactions.html', records=records_dict, categories=categories, budget_limit=budget_limit, category_budgets=category_budgets, average_daily_spending=average_daily_spending, category_average_daily_spending=category_average_daily_spending, total_spending=total_spending, notification=notification)
 
 
 @app.route('/load_dataset')
